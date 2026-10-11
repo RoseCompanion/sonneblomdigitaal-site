@@ -58,7 +58,7 @@ function model(D) {
     ["Highest profit day", `${pnl(x.best_day)} · ${x.best_day_date || ""}`], ["Worst day", `${pnl(x.worst_day)} · ${x.worst_day_date || ""}`],
     ["Days traded", x.days_traded ?? "–"], ["Last trade", x.last_trade ? ago(x.last_trade) : "–"], ["Bot", x.running ? "🟢 running" : "⚪ stopped"]];
   const ks = bo.kalshi || {}, pm = bo.polymarket || {}, kb = bo.krypto || {};
-  const ls = s.longshot || {}; const lb = s.lsbot || {}; const lr = s.lslive || {}; const polyReal = lr.value != null ? +(lr.value - (lr.start_real || lr.start || 19.53)).toFixed(2) : 0; const kx = s.k10x || {}; const sb = s.solbot || {}; const cb = s.copybot || {}; const br = s.botrace || {}; const brr = br.racers || [];
+  const ls = s.longshot || {}; const lb = s.lsbot || {}; const lr = s.lslive || {}; const polyReal = lr.value != null ? +(lr.value - (lr.start_real || lr.start || 19.53)).toFixed(2) : 0; const kx = s.k10x || {}; const sb = s.solbot || {}; const cb = s.copybot || {}; const br = s.botrace || {}; const brr = br.racers || []; const wp = s.whop || {}; const yt = s.youtube || {};
   const race = [{ name: "Polymarket LIVE", method: "same style, REAL money", value: lr.value, start: lr.start_real || lr.start || 19.53, trades: lr.trades || 0, wins: lr.wins || 0, live: true },
     { name: "Polymarket", method: "momentum on favourites", value: lb.value, trades: lb.trades || 0, wins: lb.wins || 0 },
     { name: "Copy Desk", method: "copies 5 top Polymarket traders", value: cb.value, start: cb.start || 125, trades: sum(cb.traders || [], t => t.trades), wins: sum(cb.traders || [], t => t.wins) },
@@ -112,7 +112,33 @@ function model(D) {
       board: { title: x.name, main: x.status, mainLabel: x.title || "", rows: [] }, sheet: () => homeHTML(x, team) };
   });
 
+  // Trading Town = the AI Bot Race (owner 2026-10-10): only the 10 racers, one building each, height grows with the bankroll
+  const RSLOT = [[-32.5, -168], [-19.5, -168], [-6.5, -168], [6.5, -168], [19.5, -168], [32.5, -168], [-26, -146], [-13, -146], [0, -146], [13, -146], [26, -146]];
+  const RORD = ["longshot", "kalshi", "sol", "weather", "bond", "bull"];
+  const RDESC = { longshot: "Polymarket momentum: favourites at 60-90c ending within a day whose price is rising; sells at 97c, stop at -25%.",
+    kalshi: "Kalshi fair value: Coinbase price + 6 h volatility -> real probability for Bitcoin/Ethereum 'above $X' markets; buys when Kalshi is 8c too cheap.",
+    sol: "SOL dip buyer: buys unusual drops vs the 4-hour average (z-score), skips falling knives, sells at +1.5%, stop -4%. Real Jupiter quotes.",
+    weather: "Kalshi daily high-temperature brackets in 7 US cities: NWS forecast + live station readings, buys when 8c+ under fair value.",
+    bull: "Always bets Bitcoin goes UP: buys 'Up' on every 15-minute Polymarket Bitcoin market with 10% of the bankroll, holds to the result.",
+    bond: "Polymarket 'bonds': outcomes at 90-97c ending within 48 h, 10% per bet, max 8, max 2 crypto, stop at -15%." };
+  const rRank = id => brr.findIndex(x => x.id === id) + 1;
+  const rOrder = [...brr].sort((a, b) => { const ia = RORD.indexOf(a.id), ib = RORD.indexOf(b.id); if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); return (a.joined || 0) - (b.joined || 0) || a.name.localeCompare(b.name); });
+  const RACERS = rOrder.slice(0, 11).map((r, i) => {
+    const rk = rRank(r.id), up = (r.pct || 0) >= 0, trader = r.who === "TOP TRADER";
+    return { id: "racer_" + r.id, name: r.name, short: r.name.toUpperCase().slice(0, 14), icon: trader ? "👤" : "🤖", color: parseInt((r.color || "#9945ff").slice(1), 16),
+      pos: RSLOT[i], w: 8.5, d: 7, h: Math.round(10 + Math.max(0, Math.min(22, (r.value / (r.start || 1000) - 0.7) * 30))), kind: "coin", face: [0, 1],
+      status: br.status === "running" ? "ok" : "unknown", today: 0, total: 0,
+      tag: [`${usd(r.value)} · ${up ? "+" : ""}${(r.pct || 0).toFixed(1)}%`, `#${rk} · ${trader ? "top trader" : r.who === "NEW BOT" ? "new bot" : "our bot"} · ${r.venue}`],
+      board: { title: r.name.toUpperCase(), main: usd(r.value), mainLabel: `#${rk} of ${brr.length} in the race · ${br.status || "waiting"}`,
+        rows: [["Return", `${up ? "+" : ""}${(r.pct || 0).toFixed(1)}%`], ["Trades", num(r.trades || 0)], ["Won", num(r.wins || 0)], ["Open", num(r.open || 0)], ["Venue", r.venue]] },
+      sheet: () => sheetHTML(r.name, trader ? `Top Polymarket trader, copied trade for trade with $1,000 practice money (same share of the bankroll they use, 1c worse prices). Every Monday the 2 worst traders are swapped out.` : (RDESC[r.id] || r.venue),
+        usd(r.value), `#${rk} of ${brr.length} · started with ${usd(r.start || 1000)}`,
+        [["Return", `${up ? "+" : ""}${(r.pct || 0).toFixed(2)}%`], ["Trades closed", num(r.trades || 0)], ["Won", num(r.wins || 0)], ["Open now", num(r.open || 0)], ["Type", r.who.toLowerCase()], ["Venue", r.venue]],
+        (r.log || []).map(l => [l.msg, (l.ts || "").slice(5, 16).replace("T", " ")]), "Latest trades",
+        trader && r.wallet ? `https://polymarket.com/profile/${r.wallet}` : "", (br.started ? "Race started " + br.started.slice(0, 16).replace("T", " ") + " UTC." : "Race starts when the YouTube stream goes live.") + " Paper money, real prices.") };
+  });
   const B = [
+    ...(DEMO ? [] : RACERS),
     { id: "etsy", name: "Etsy Megastore", short: "ETSY", icon: "🛍️", color: 0xff8a3d, pos: [120, -16], w: 13, d: 9, h: 12, kind: "factory", face: [0, 1],
       status: st("etsy"), today: eDay, total: eTot,
       tag: [`${num(L.length)} listings`, eDay ? usd(eDay) + " today" : `${num(views)} views`],
@@ -145,6 +171,14 @@ function model(D) {
         [["Views 24h", num(sum(ia, a => a.views_24h))], ["Views 7d", num(sum(ia, a => a.views_7d))], ["Likes", num(sum(ia, a => a.likes))], ["Comments", num(sum(ia, a => a.comments))],
          ...ia.map(a => [`${a.emoji || ""} ${a.name}${a.username ? " @" + a.username : ""}`, a.error ? a.error : `${num(a.followers)} followers · ${num(a.posts)} posts`])],
         ia.filter(a => a.top).map(a => [`${a.name}: ${a.top.text || "top post"}`, `${num(a.top.views)} views`]), "Top post per account", "https://www.instagram.com/") },
+
+    { id: "youtube", name: "YouTube Tower", short: "YOUTUBE", icon: "📺", color: 0xff0033, pos: [-162, 26], w: 8, d: 8, h: 36, kind: "spire", face: [1, 0],
+      status: yt.ts ? "ok" : "unknown", today: 0, total: 0,  // views are not money (owner 2026-10-10: it showed $151)
+      tag: yt.ts ? [`${num(yt.subs || 0)} subs · ${num(yt.views || 0)} views`, `${(yt.list || []).length} videos · ${yt.live_ready ? "LIVE ready" : "live unlocks soon"}`] : ["connecting", ""],
+      board: { title: "AI BOT RACE · YOUTUBE", main: `${num(yt.subs || 0)} subs`, mainLabel: `${num(yt.views || 0)} channel views`, rows: (yt.list || []).slice(0, 6).map(v => [v.title.slice(0, 26), v.privacy === "public" ? `${num(v.views)} views` : "⏳ " + v.privacy]) },
+      sheet: () => sheetHTML("YouTube Tower", "The AI Bot Race channel: how-we-built-it series (uploaded by API, scheduled; approve in the YouTube app) plus the 24/7 live race once streaming unlocks. Series 2 = the City, 3 = AI influencers, 4 = e-commerce.",
+        `${num(yt.subs || 0)} subs`, `${num(yt.views || 0)} views · ${(yt.list || []).length} videos`,
+        (yt.list || []).map(v => [v.title, v.privacy === "public" ? `${num(v.views)} views` : `${v.privacy}`]), [], "", "https://studio.youtube.com", "Updated " + (yt.ts || "–")) },
 
     { id: "influencer", name: "AI Influencer Tower", short: "AI INFLUENCER", icon: "✨", color: 0xff3d9a, pos: [-162, 26], w: 8, d: 8, h: 36, kind: "spire", face: [1, 0],
       status: "ok", today: 0, total: 0,
@@ -201,84 +235,13 @@ function model(D) {
         [["Actors", (ap.actors || []).length], ["Users", apUsers], ["x402 balance", "$" + (x4.balance_usdc ?? 0)], ["x402 paid calls", x4.external_tx_since_oct2 ?? 0], ["x402 server", svLabel("x402-agentedge")]],
         [...(ap.actors || [])].sort((a, b) => b.runs - a.runs).slice(0, 6).map(a => [a.title, `${a.runs} runs`]), "Busiest actors", "https://console.apify.com/actors") },
 
-    { id: "krypto", name: "Krypto Mint", short: "KRYPTO", icon: "🪙", color: 0x9945ff, pos: [-24, -150], w: 7, d: 7, h: 15, kind: "coin", face: [0, 1],
-      status: st("krypto"), today: 0, total: 0,
-      tag: sb.value != null ? [usd(sb.value) + " of $250 (practice)", `${(sb.lots || []).length} open · ${sb.trades || 0} done`] : [usd(kr.usd || 0) + " wallet", kr.armed_scripts?.length ? "bot trading" : "bot off"],
-      board: sb.value != null ? { title: "PHANTOM $25 → $250", main: usd(sb.value), mainLabel: "SOL dip bot · practice money",
-        rows: [["Profit", `${pnlU(sb.value, 25)} (${pct(sb.value, 25)})`], ["Open lots", (sb.lots || []).length], ["Trades done", `${sb.trades || 0} (${sb.wins || 0} wins)`], ["Race place", place("Phantom SOL")]] } : { title: "KRYPTO MINT", main: usd(kr.usd || 0), mainLabel: "Phantom wallet (SOL + tokens)",
-        rows: sb.value != null ? [["SOL dip bot", usd(sb.value) + " of $250"], ["Bot trades", `${sb.trades || 0} (${sb.wins || 0} wins)`], ["Profit", `${pnlU(sb.value, 25)} (${pct(sb.value, 25)})`], ["Race place", place("Phantom SOL")]] : [["SOL", (kr.sol ?? 0).toFixed(4)], ["Rand", "R" + num(Math.round(kr.zar || 0))], ["Bot today", pnl(kb.today)], ["Best day", pnl(kb.best_day)]] },
-      sheet: () => sheetHTML("Krypto Mint", "Phantom / Krypto Bot wallet on Solana (read-only)", usd(kr.usd || 0), "wallet value",
-        [...(sb.value != null ? [["SOL dip bot (practice)", usd(sb.value) + " of $250"], ["Bot trades", `${sb.trades || 0} (${sb.wins || 0} wins)`], ["Open lots", (sb.lots || []).length], ["Dip score now", (sb.z ?? 0).toFixed(1) + " (buys at -1.8)"], ["Profit", `${pnlU(kx.value, 25)} (${pct(kx.value, 25)})`], ["Race place", place("Kalshi")]] : []),
-         ["SOL", (kr.sol ?? 0).toFixed(4)], ["Tokens (open)", usd(kr.tokens_usd || 0)], ["Rand", "R" + num(Math.round(kr.zar || 0))], ["Trading script", kr.armed_scripts?.length ? kr.armed_scripts.join(", ") : "off"], ["Bot app", kr.app_running ? "🟢 running" : "🔴 stopped"], ...botSheet(kb).slice(0, 9)],
-        (kr.tokens || []).map(t => [t.symbol, usd(t.usd)]), "Open tokens", kr.address ? "https://solscan.io/account/" + kr.address : "", "Balance read from the public Solana chain on every HQ refresh.") },
-
-    { id: "kalshi", name: "Kalshi Casino", short: "KALSHI", icon: "🎲", color: 0x00d395, pos: [24, -150], w: 7, d: 7, h: 13, kind: "coin", face: [0, 1],
-      status: st("bots"), today: 0, total: 0,
-      tag: kx.value != null ? [usd(kx.value) + " of $250 (practice)", `${(kx.positions || []).length} open · ${kx.trades || 0} done`] : [pnl(ks.today) + " today", "best day " + pnl(ks.best_day)],
-      board: kx.value != null ? { title: "KALSHI $25 → $250", main: usd(kx.value), mainLabel: "fair-value bot · practice money",
-          rows: [["Open trades", (kx.positions || []).length], ["Trades done", `${kx.trades || 0} (${kx.wins || 0} wins)`], ["Profit", `${pnlU(kx.value, 25)} (${pct(kx.value, 25)})`], ["Race place", place("Kalshi")]] }
-        : { title: "KALSHI BOT", main: pnl(ks.today), mainLabel: "profit today", rows: botRows(ks) },
-      sheet: () => kx.value != null ? sheetHTML("Kalshi Casino", "$25 → $250 challenge on Kalshi, FAIR-VALUE method: it prices Bitcoin/Ethereum 'above $X' markets itself from the live price and volatility, buys only when Kalshi is at least 5c too cheap (after fees), and holds to settlement. Practice money, real Kalshi prices.",
-          usd(kx.value), "bot value (cash + open trades)",
-          [["Cash", usd(kx.cash || 0)], ["Progress", Math.round(100 * (kx.progress || 0)) + "%"], ["Trades done", `${kx.trades || 0} (${kx.wins || 0} wins)`], ["Profit", `${pnlU(kx.value, 25)} (${pct(kx.value, 25)})`], ["Race place", place("Kalshi")]]
-            .concat((kx.positions || []).map(p => [`${p.side.toUpperCase()} ${p.label}`, `${p.contracts} @ ${Math.round(p.price * 100)}c · fair ${Math.round(p.fair * 100)}%`])),
-          (kx.log || []).slice(0, 8).map(l => [l.msg, (l.ts || "").slice(5, 16).replace("T", " ")]), "Latest bot moves", "https://kalshi.com", "The old 15-minute Kalshi bot stays switched off.")
-        : sheetHTML("Kalshi Casino", "BTC/ETH 15-minute contracts · numbers from Kalshi's own settlements", pnl(ks.lifetime), "lifetime profit",
-        botSheet(ks).concat([["Balance", usd(ks.balance || 0)]]), [], "", "https://kalshi.com/portfolio", "Read-only: the bot itself is switched off.") },
-
-    { id: "poly", name: "Polymarket Practice", short: "POLY PRACTICE", icon: "📈", color: 0x2e5cff, pos: [-8, -146], w: 7, d: 7, h: 14, kind: "coin", face: [0, 1],
-      status: st("longshot"), today: 0, total: 0,
-      tag: [usd(lb.value || 0) + " of $250" + (lb.mode === "paper" ? " (practice)" : ""), `${(lb.positions || []).length} open · ${lb.trades || 0} done`],
-      board: { title: "POLYMARKET $25 → $250", main: usd(lb.value || 0), mainLabel: `${lb.style_name || "–"} style` + (lb.mode === "paper" ? " · practice money" : ""),
-        rows: [["Profit", `${pnlU(lb.value, 25)} (${pct(lb.value, 25)})`], ["Open trades", (lb.positions || []).length], ["Trades done", `${lb.trades || 0} (${lb.wins || 0} wins)`], ["Race place", place("Polymarket")], ["REAL money", lr.value != null ? `${usd(lr.value)} (${pct(lr.value, lr.start_real || 19.53)}) · ${(lr.positions || []).length} open` : "–"]] },
-      sheet: () => sheetHTML("Polymarket Exchange", "The Polymarket $25 → $250 bot. Style now: '" + (lb.style_name || "–") + "' (favourites 60-90c with rising prices, no sports/esports, sells at 97c or settlement, stop at -25%). " + (lb.mode === "paper" ? "Practice mode: real prices, simulated money." : "Live mode."),
-        usd(lb.value || 0), "bot value (cash + open trades)",
-        [["Profit", pnlU(lb.value, 25)], ["Profit %", pct(lb.value, 25)], ["Cash", usd(lb.cash || 0)], ["Trades done", `${lb.trades || 0} (${lb.wins || 0} wins)`], ["Status", lb.status || "–"], ["Race place", place("Polymarket")]]
-          .concat((lb.positions || []).map(p => [`${p.q} · ${p.outcome}`, `${usd(p.stake)} @ ${Math.round(p.entry * 100)}c → now ${Math.round((p.mark ?? p.entry) * 100)}c`])),
-        (lb.log || []).slice(0, 8).map(l => [l.msg, (l.ts || "").slice(5, 16).replace("T", " ")]), "Latest bot moves", "https://polymarket.com", "The old 5-minute Up/Down bot stays switched off.") },
-
-    { id: "polylive", name: "Polymarket LIVE", short: "POLY LIVE", icon: "💵", color: 0x00e676, pos: [8, -146], w: 8, d: 8, h: 17, kind: "coin", face: [0, 1],
-      status: lr.status === "running" ? "ok" : lr.value != null ? "stale" : "unknown", today: 0, total: polyReal,
-      tag: lr.value != null ? [`${usd(lr.value)} REAL · ${pnlU(lr.value, lr.start_real || 19.53)}`, `${(lr.positions || []).length} open · ${lr.trades || 0} done`] : ["not started", ""],
-      board: { title: "POLYMARKET LIVE", main: usd(lr.value || 0), mainLabel: "REAL money · " + (lr.style_name || "–") + " style",
-        rows: [["Profit", `${pnlU(lr.value, lr.start_real || 19.53)} (${pct(lr.value, lr.start_real || 19.53)})`], ["Open trades", (lr.positions || []).length], ["Trades done", `${lr.trades || 0} (${lr.wins || 0} wins)`], ["Race place", place("Polymarket LIVE")]] },
-      sheet: () => sheetHTML("Polymarket LIVE", "The real-money Polymarket bot (same style as the practice bot). Its profit is NOT counted in the Vault (Vault = sales only).",
-        usd(lr.value || 0), "bot value (cash + open trades)",
-        [["Started with", usd(lr.start_real || 19.53)], ["Profit", pnlU(lr.value, lr.start_real || 19.53)], ["Profit %", pct(lr.value, lr.start_real || 19.53)], ["Cash", usd(lr.cash || 0)], ["Trades done", `${lr.trades || 0} (${lr.wins || 0} wins)`], ["Status", lr.status || "–"], ["Race place", place("Polymarket LIVE")]]
-          .concat((lr.positions || []).map(p => [`${p.q} · ${p.outcome}`, `${usd(p.stake)} @ ${Math.round(p.entry * 100)}c → now ${Math.round((p.mark ?? p.entry) * 100)}c`])),
-        (lr.log || []).slice(0, 8).map(l => [l.msg, (l.ts || "").slice(5, 16).replace("T", " ")]), "Latest bot moves", "https://polymarket.com") },
-
-    { id: "copy", name: "Copy Desk", short: "COPY DESK", icon: "🪞", color: 0xffb020, pos: [-8, -128], w: 7, d: 7, h: 12, kind: "coin", face: [0, 1],
-      status: cb.ts ? "ok" : "unknown", today: 0, total: 0,
-      tag: cb.value != null ? [`${usd(cb.value)} of ${usd(cb.start || 125)} (practice)`, `${(cb.traders || []).length} traders copied`] : ["starting", ""],
-      board: { title: "COPY DESK", main: usd(cb.value || 0), mainLabel: "copying 5 top traders · practice money", rows: (cb.traders || []).map(t => [t.name.slice(0, 16), usd(t.value ?? 25)]) },
-      sheet: () => sheetHTML("Copy Desk", "Copies 5 top Polymarket traders trade-for-trade (same share of the bankroll as they use, $25 practice money each). Picked from the public leaderboard: profitable this month AND all time, active, no market makers or fast-crypto bots. Assess after 2-4 weeks before any real money.",
-        usd(cb.value || 0), `value of ${usd(cb.start || 125)} practice money`,
-        (cb.traders || []).map(t => [`${t.name} (+$${num(t.month_pnl)} this month)`, `${usd(t.value ?? 25)} · ${pct(t.value ?? 25, 25)} · ${t.open || 0} open · ${t.trades} done`]),
-        (cb.traders || []).flatMap(t => (t.log || []).slice(0, 3).map(l => [`${t.name.slice(0, 10)}: ${l.msg}`, (l.ts || "").slice(5, 16).replace("T", " ")])).slice(0, 12), "Latest copied trades",
-        "https://polymarket.com/leaderboard", "Started " + (cb.started || "–") + ". Checks for new trades every 5 minutes.") },
-
-    { id: "botrace", name: "Live Arena", short: "LIVE ARENA", icon: "📺", color: 0xff3b5c, pos: [8, -128], w: 7, d: 7, h: 13, kind: "coin", face: [0, 1],
-      status: br.ts ? "ok" : "unknown", today: 0, total: 0,
-      tag: brr.length ? [br.status === "running" ? `🥇 ${brr[0].name} ${usd(brr[0].value)}` : "race starts soon", `${brr.length} bots · $1,000 each · YouTube live`] : ["setting up", ""],
-      board: { title: "AI BOT RACE · LIVE", main: brr.length ? brr[0].name : "–", mainLabel: br.status === "running" ? `leading · ${usd(brr[0].value)}` : "starts when the stream goes live",
-        rows: brr.map((r, i) => [`${["🥇", "🥈", "🥉"][i] || (i + 1) + "."} ${r.name.slice(0, 16)}`, `${usd(r.value)} · ${r.pct >= 0 ? "+" : ""}${r.pct}%`]) },
-      sheet: () => sheetHTML("Live Arena", "The 24/7 YouTube livestream race: 5 top Polymarket traders (copied, public wallets; every Monday the 2 worst are swapped for the next best), your 3 bots (Long Shot, Kalshi Fair Value, SOL Dip Buyer) and 2 new bots (Weather Bot on Kalshi temperature markets, Bond Bot on 90c+ Polymarket outcomes). $1,000 practice money each, real prices. Reels from Ollie, Granny Mae and Mr Nobody loop next to the board.",
-        brr.length ? brr[0].name : "–", br.status === "running" ? "in the lead" : (br.status || "setting up"),
-        brr.map((r, i) => [`${i + 1}. ${r.name} (${r.who.toLowerCase()}, ${r.venue})`, `${usd(r.value)} · ${r.pct >= 0 ? "+" : ""}${r.pct}% · ${r.trades} trades`]),
-        (br.feed || []).slice(0, 10).map(f => [f, ""]), "Latest trades",
-        "", (br.started ? "Started " + br.started.slice(0, 16).replace("T", " ") + " UTC." : "Not started yet.") + ((br.dropped || []).length ? " Kicked out so far: " + br.dropped.map(d => d.name).join(", ") + "." : "")) },
-
-    { id: "longshot", name: "Bot Olympics", short: "BOT OLYMPICS", icon: "🏅", color: 0xffd166, pos: [0, -174], w: 38, d: 3, h: 21, lift: 22, kind: "bigboard", face: [0, 1], draw: g => drawOlympics(g, race),
-      status: "ok", today: 0, total: 0,
-      tag: race.length ? [`🥇 ${race[0].name} ${pct(race[0].value, race[0].start)}`, `${race.length} bots · race to $250`] : ["no bots", ""],
-      board: { title: "BOT RACE · $25 → $250", main: race.length ? race[0].name : "–", mainLabel: "leading" + (race.length ? ` · ${pnlU(race[0].value, race[0].start)} (${pct(race[0].value, race[0].start)})` : ""),
-        rows: race.map((r, i) => [`${["🥇", "🥈", "🥉"][i] || ""} ${r.name}`, `${pct(r.value, r.start)} · ${pnlU(r.value, r.start)}`]) },
-      sheet: () => sheetHTML("Bot Olympics", "Every trading bot racing to $250 with its own method. Ranked by profit % from its own start (the LIVE Polymarket bot started with real money; the rest are practice money on real prices).",
-        race.length ? race[0].name : "–", "in the lead",
-        race.flatMap((r, i) => [[`${["🥇", "🥈", "🥉"][i] || (i + 1) + "th"} ${r.name}`, `${pct(r.value, r.start)} · ${pnlU(r.value, r.start)}`]]),
-        race.map(r => [`${r.name}: ${r.method}`, `${usd(r.value)} · ${r.trades} trades (${r.wins} wins)`]), "Leaderboard (value · trades)", "",
-        "Tap a bot's building for its open trades.") },
+    { id: "whop", name: "Whop Store", short: "WHOP", icon: "🛍️", color: 0xff6243, pos: [112, 24], w: 11, d: 9, h: 14, kind: "coin", face: [0, 1],
+      status: wp.ts ? "ok" : "unknown", today: 0, total: wp.revenue_usd || 0,
+      tag: wp.ts ? [`${usd(wp.revenue_usd || 0)} · ${wp.sales || 0} sales`, `${(wp.products || []).length} products · ${wp.members || 0} members`] : ["setting up", ""],
+      board: { title: "WHOP STORE", main: usd(wp.revenue_usd || 0), mainLabel: `${wp.sales || 0} sales · ${wp.members || 0} members`, rows: (wp.products || []).map(p => [p.title.slice(0, 22), `${p.members} members`]) },
+      sheet: () => sheetHTML("Whop Store", "whop.com/sonneblomdigitaal: AI influencer templates, the Copy What We Did Club ($19/mo, linked from every AI Bot Race video), AI avatar setup service and Side Hustle City. Affiliates earn 30%.",
+        usd(wp.revenue_usd || 0), `${wp.sales || 0} sales · ${wp.members || 0} members`,
+        (wp.products || []).map(p => [p.title, `${p.members} members · ${p.visibility}`]), [], "", "https://whop.com/sonneblomdigitaal", "Updated " + (wp.ts || "–")) },
 
     { id: "pinterest", name: "Pinterest Studio", short: "PINTEREST", icon: "📌", color: 0xe60023, pos: [-130, -12], w: 7, d: 7, h: 14, kind: "pin", face: [1, 0],
       status: pi.error ? "stale" : pi.last_date && pi.last_date <= new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10) ? "stale" : "ok", today: 0, total: 0,
@@ -358,7 +321,10 @@ function model(D) {
       tag: [`${(av.avatars || []).filter(a => a.status === "live").length}/${(av.avatars || []).length} live`, `${num(av.credits?.left)} credits`],
       board: { title: "AI INFLUENCER ARMY", main: num(av.credits?.left), mainLabel: `Higgsfield credits left · ${av.credits?.plan || ""}`,
         rows: (av.avatars || []).slice(0, 5).map(a => [a.emoji + " " + a.short, a.status]) },
-      sheet: () => armyHTML(av) }]),
+      sheet: () => armyHTML(av) + `<div class="lt" style="margin-top:14px">🌹 Influencer lives here now</div><div class="list">${[
+        ["Followers (FB + IG)", num(rd.followers)], ["New today", plus(rd.gained_24h)], ["New this week", plus(rd.gained_7d)], ["Messages today", num(rd.messages_today)],
+        ["Likes this week", num(rd.likes_7d)], ["Comments this week", num(rd.comments_7d)], ["Money all time", usd(rd.money_usd)], ["Influencer bot", svLabel("companion")]]
+        .map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(String(v))}</span></div>`).join("")}</div>` }]),
 
     // the big billboards (owner 2026-10-08): one giant screen per quarter instead of a board on every building
     { id: "newfaces", name: "Media Billboard", short: "NEW FACES", icon: "✨", color: 0xff4fd8, pos: [-174, 0], w: 40, d: 3, h: 22, lift: 6, kind: "bigboard", face: [1, 0], neonOnly: true, noPay: true,
@@ -477,6 +443,114 @@ function armyHTML(a) {
     ${(a.rules || []).length ? `<div class="note">📏 ${a.rules.map(esc).join("<br>📏 ")}</div>` : ""}`;
 }
 
+
+// ---------- outskirts (owner 2026-10-10): mountains west, beach + ocean east, wind farm north, sunflower fields south,
+// and four different corners between the quarters: pine forest + lake, golf course, farm, funfair ----------
+function outskirts() {
+  const F = (c, e = 0x000000, ei = 0, o = {}) => new THREE.MeshStandardMaterial({ color: c, emissive: e, emissiveIntensity: ei, roughness: 0.9, flatShading: true, ...o });
+  const add = (geo, m, x, y, z, ry = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.y = ry; scene.add(o); return o; };
+  const flat = (geo, m, x, y, z, ry = 0) => { const o = new THREE.Mesh(geo.rotateX(-Math.PI / 2), m); o.position.set(x, y, z); o.rotation.y = ry; scene.add(o); return o; };
+  const R = (a, b) => a + Math.random() * (b - a);
+  // instanced pines + sunflowers (hundreds of them; one draw call per part keeps phones smooth)
+  const PI_ = { trunk: [], c: [[], [], []] }, SF = { stem: [], petal: [], core: [] }, o3 = new THREE.Object3D();
+  const mx = (x, y, z, sx, sy, sz, rx = 0) => { o3.position.set(x, y, z); o3.rotation.set(rx, 0, 0); o3.scale.set(sx, sy, sz); o3.updateMatrix(); return o3.matrix.clone(); };
+  const pine = (x, z, h = R(6, 11)) => { PI_.trunk.push(mx(x, h * 0.15, z, h, h, h)); for (let k = 0; k < 3; k++) PI_.c[k].push(mx(x, h * (0.35 + k * 0.2), z, h, h, h)); };
+  const inst = (geo, m, list) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, m, list.length); list.forEach((M4, i) => im.setMatrixAt(i, M4)); scene.add(im); };
+  const palm = (x, z) => { const h = R(7, 10), lean = R(-0.25, 0.25), t = add(new THREE.CylinderGeometry(0.25, 0.4, h, 6), F(0x8a6a44), x, h / 2, z); t.rotation.z = lean;
+    for (let k = 0; k < 6; k++) { const l = add(new THREE.ConeGeometry(0.6, 4.2, 4), F(0x2f8a3c, 0x0a3014, 0.4), x - Math.sin(lean) * h, h, z); l.rotation.set(Math.PI / 2 - 0.5, k * 1.05, 0); l.translateY(1.9); } };
+
+  // WEST: a mountain range behind Media Hill with snow caps
+  for (let k = 0; k < 9; k++) {
+    const z = -260 + k * 65 + R(-15, 15), x = -262 - R(0, 30), h = R(60, 120), r = R(32, 50);
+    add(new THREE.ConeGeometry(r, h, 7), F(0x6b6458, 0x1a1712, 0.35), x, h / 2 - 2, z, R(0, 3));
+    add(new THREE.ConeGeometry(r * 0.32, h * 0.32, 7), F(0xf4f6fa, 0x5a6070, 0.35), x, h - h * 0.16 - 2.5, z, R(0, 3));
+    for (let p = 0; p < 6; p++) pine(x + r * 0.9 + R(0, 18), z + R(-r, r), R(5, 9));
+  }
+  // EAST: sand beach along the whole side, the ocean beyond, palms, umbrellas, a pier and sailboats
+  flat(new THREE.PlaneGeometry(46, 520), F(0xe9d3a1, 0x3a2f18, 0.35), 236, 0.32, 0);
+  const sea = flat(new THREE.PlaneGeometry(900, 900), new THREE.MeshStandardMaterial({ color: 0x1b6fa8, emissive: 0x0d3f6b, emissiveIntensity: 0.5, metalness: 0.6, roughness: 0.15 }), 259 + 450, 0.2, 0);
+  anim.push((dt, t) => sea.material.emissiveIntensity = 0.45 + Math.sin(t * 0.7) * 0.06);
+  for (let k = 0; k < 6; k++) flat(new THREE.PlaneGeometry(3, 520), F(0xf4fbff, 0x9ad0ee, 0.6), 258 + k * 0.7, 0.25 + k * 0.001, 0); // surf line
+  for (let z = -230; z <= 230; z += R(14, 24)) palm(R(220, 232), z);
+  const umb = [0xff3b6b, 0xffd166, 0x22c55e, 0x38bdf8, 0xff8a00];
+  for (let z = -200; z <= 200; z += R(18, 30)) { const x = R(238, 252), c = umb[Math.floor(Math.random() * umb.length)];
+    add(new THREE.CylinderGeometry(0.08, 0.08, 3, 6), F(0xffffff), x, 1.5, z); add(new THREE.ConeGeometry(2.2, 0.9, 8), F(c, c, 0.25), x, 3, z);
+    add(new THREE.BoxGeometry(1, 0.15, 2), F(0xffffff), x + 1.6, 0.4, z); }
+  add(new THREE.BoxGeometry(70, 1, 5), F(0x8a6a44, 0x1f160c, 0.3), 285, 1.6, 40);                      // pier
+  for (let k = 0; k < 8; k++) add(new THREE.CylinderGeometry(0.3, 0.3, 4, 6), F(0x5a4430), 255 + k * 9, 0.5, 42.6);
+  for (let k = 0; k < 5; k++) { const b = new THREE.Group(); b.position.set(R(300, 420), 0.4, R(-200, 200)); scene.add(b);
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(7, 1.2, 2.4), F(0xffffff, 0x666666, 0.3)); hull.position.y = 0.6; b.add(hull);
+    const sail = new THREE.Mesh(new THREE.ConeGeometry(2.4, 8, 3), F(0xf8fafc, 0xaaaaaa, 0.3)); sail.position.set(0, 5.2, 0); sail.scale.z = 0.15; b.add(sail);
+    const z0 = b.position.z; anim.push((dt, t) => { b.position.z = z0 + Math.sin(t * 0.05 + k) * 30; b.rotation.z = Math.sin(t * 0.8 + k) * 0.04; }); }
+  // NORTH: rolling hills with a wind farm behind Trading Town
+  for (let k = 0; k < 7; k++) { const x = -240 + k * 80 + R(-20, 20), z = -290 - R(0, 40), r = R(50, 80);
+    const hill = add(new THREE.SphereGeometry(r, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), F(0x2f7a3e, 0x0b2a14, 0.35), x, -r * 0.55, z); hill.scale.y = 0.6; }
+  for (let k = 0; k < 8; k++) { const x = -210 + k * 60 + R(-10, 10), z = -262 - R(0, 30), h = 46;
+    add(new THREE.CylinderGeometry(0.8, 1.4, h, 8), F(0xf1f5f9, 0x8a95a3, 0.4), x, h / 2, z);
+    const hub = new THREE.Group(); hub.position.set(x, h, z + 1.6); scene.add(hub);
+    for (let b = 0; b < 3; b++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(1, 20, 0.3), F(0xffffff, 0x9aa5b1, 0.4)); bl.geometry.translate(0, 10, 0); bl.rotation.z = b * 2.094; hub.add(bl); }
+    anim.push((dt, t) => hub.rotation.z = t * 0.6 + k); }
+  // SOUTH: sunflower fields (Sonneblom = sunflower) beyond the Suburbs
+  flat(new THREE.PlaneGeometry(420, 50), F(0x4f7a2a, 0x1a2a0c, 0.35), 0, 0.31, 232);
+  const stem = F(0x3f6b22, 0x10200a, 0.3), petal = F(0xffc81a, 0x8a5a00, 0.5), core = F(0x5a3a1a);
+  for (let x = -200; x <= 200; x += 5) for (let z = 214; z <= 252; z += 5) { const h = R(2.2, 3.4), xx = x + R(-1.5, 1.5), zz = z + R(-1.5, 1.5);
+    SF.stem.push(mx(xx, h / 2, zz, 1, h, 1)); SF.petal.push(mx(xx, h, zz, 1, 1, 1, 1.2)); SF.core.push(mx(xx, h + 0.05, zz - 0.04, 1, 1, 1, 1.2)); }
+  inst(new THREE.CylinderGeometry(0.08, 0.1, 1, 4), stem, SF.stem); inst(new THREE.CylinderGeometry(0.9, 0.9, 0.15, 8), petal, SF.petal); inst(new THREE.CylinderGeometry(0.42, 0.42, 0.2, 8), core, SF.core);
+
+  // CORNERS between the quarters
+  const C = { nw: [-122, -118], ne: [122, -118], sw: [-122, 118], se: [122, 118] };
+  { const [x, z] = C.nw;   // pine forest round a mountain lake with a log cabin and a jetty
+    const lake = flat(new THREE.CircleGeometry(16, 40), new THREE.MeshStandardMaterial({ color: 0x174d6b, emissive: 0x0c3550, emissiveIntensity: 0.5, metalness: 0.7, roughness: 0.1 }), x, 0.34, z); lake.scale.set(1.4, 1, 1);
+    for (let k = 0; k < 60; k++) { const a = R(0, 6.283), d = R(26, 42); pine(x + Math.cos(a) * d, z + Math.sin(a) * d * 0.9); }
+    const cab = new THREE.Group(); cab.position.set(x + 18, 0, z + 20); cab.rotation.y = -0.6; scene.add(cab);
+    const logs = F(0x7a4f2a, 0x2a1508, 0.35); const c1 = new THREE.Mesh(new THREE.BoxGeometry(9, 4, 7), logs); c1.position.y = 2; cab.add(c1);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(7, 3.5, 4), F(0x3b2a20)); roof.position.y = 5.7; roof.rotation.y = Math.PI / 4; roof.scale.set(1.15, 1, 0.9); cab.add(roof);
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.2), new THREE.MeshBasicMaterial({ color: 0xffd38a })); win.position.set(2, 2.2, 3.51); cab.add(win);
+    add(new THREE.BoxGeometry(2.4, 0.4, 12), F(0x8a6a44, 0x1f160c, 0.3), x + 4, 0.6, z + 10); }
+  { const [x, z] = C.ne;   // golf course: fairway, green with a flag, sand bunkers, clubhouse
+    const fw = flat(new THREE.CircleGeometry(30, 32), F(0x4fb54f, 0x184d18, 0.35), x, 0.33, z); fw.scale.set(1.3, 1, 0.75);
+    flat(new THREE.CircleGeometry(7, 32), F(0x6fd66f, 0x1f5a1f, 0.4), x + 22, 0.35, z - 6);
+    add(new THREE.CylinderGeometry(0.08, 0.08, 4, 6), F(0xffffff), x + 22, 2, z - 6);
+    const flag = add(new THREE.PlaneGeometry(1.6, 1, 4, 1), F(0xff2b2b, 0xff2b2b, 0.5, { side: THREE.DoubleSide }), x + 22.8, 3.5, z - 6); anim.push((dt, t) => flag.rotation.y = Math.sin(t * 2) * 0.3);
+    for (const [dx, dz, r] of [[8, -10, 4], [14, 6, 3.5], [-12, 8, 5]]) { const b = flat(new THREE.CircleGeometry(r, 24), F(0xf0dcaa, 0x3a2f18, 0.3), x + dx, 0.36, z + dz); b.scale.set(1.5, 1, 1); }
+    const ch = new THREE.Group(); ch.position.set(x - 26, 0, z - 14); scene.add(ch);
+    const w = new THREE.Mesh(new THREE.BoxGeometry(14, 5, 8), F(0xf6f1e7, 0x3a352b, 0.3)); w.position.y = 2.5; ch.add(w);
+    const rf = new THREE.Mesh(new THREE.BoxGeometry(15, 0.8, 9), F(0x2f5d3a)); rf.position.y = 5.3; ch.add(rf);
+    for (let k = 0; k < 14; k++) { const a = R(0, 6.283), d = R(36, 44); pine(x + Math.cos(a) * d * 1.2, z + Math.sin(a) * d * 0.8, R(5, 8)); }
+    for (let k = 0; k < 3; k++) { const cart = add(new THREE.BoxGeometry(2, 1.4, 1.2), F(0xffffff, 0x777777, 0.3), x - 10 + k * 2.6, 0.9, z - 18); } }
+  { const [x, z] = C.sw;   // farm: crop rows, red barn, silo, a turning windmill
+    const crops = [0x9cc24a, 0x6b8f2a, 0xd9b84a, 0x7aa83a];
+    for (let k = 0; k < 12; k++) { const r = flat(new THREE.PlaneGeometry(56, 3.4), F(crops[k % 4], 0x18240a, 0.35), x, 0.33 + k * 0.0005, z - 22 + k * 4); }
+    const barn = new THREE.Group(); barn.position.set(x + 30, 0, z + 18); barn.rotation.y = 0.4; scene.add(barn);
+    const bw = new THREE.Mesh(new THREE.BoxGeometry(12, 7, 9), F(0xb32a2a, 0x3a0a0a, 0.35)); bw.position.y = 3.5; barn.add(bw);
+    const br = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.2, 12.2, 3, 1), F(0x3a3a40)); br.rotation.z = Math.PI / 2; br.rotation.y = Math.PI / 2; br.position.y = 8.2; br.scale.set(1, 1, 0.6); barn.add(br);
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(4, 5), F(0xffffff)); door.position.set(0, 2.5, 4.51); barn.add(door);
+    add(new THREE.CylinderGeometry(2.6, 2.6, 14, 14), F(0xd9dde2, 0x4a4f55, 0.35), x + 40, 7, z + 14); add(new THREE.SphereGeometry(2.6, 14, 8, 0, 6.3, 0, 1.6), F(0xb0b6bd), x + 40, 14, z + 14);
+    add(new THREE.CylinderGeometry(1.2, 2.2, 16, 8), F(0xf4efe6, 0x4a4538, 0.3), x - 32, 8, z + 20);
+    const mill = new THREE.Group(); mill.position.set(x - 32, 15, z + 22); scene.add(mill);
+    for (let b = 0; b < 4; b++) { const s2 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 9, 0.2), F(0xe9e2d0, 0x555044, 0.3)); s2.geometry.translate(0, 4.5, 0); s2.rotation.z = b * Math.PI / 2; mill.add(s2); }
+    anim.push((dt, t) => mill.rotation.z = t * 0.5);
+    for (let k = 0; k < 8; k++) add(new THREE.BoxGeometry(1.6, 1, 0.8), F(0xffffff, 0x666666, 0.3), x + R(-20, 10), 0.8, z + R(16, 30), R(0, 3)); } // sheep
+  { const [x, z] = C.se;   // funfair: Ferris wheel, carousel, food stalls, string lights
+    const fw = new THREE.Group(); fw.position.set(x, 22, z); fw.rotation.y = -0.6; scene.add(fw);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(18, 0.5, 8, 48), F(0xffffff, 0xff2bd6, 0.9)); fw.add(rim);
+    for (let k = 0; k < 12; k++) { const sp = new THREE.Mesh(new THREE.BoxGeometry(0.3, 36, 0.3), F(0xdddddd, 0x00f0ff, 0.5)); sp.rotation.z = k * Math.PI / 12; fw.add(sp); }
+    const cabs = []; for (let k = 0; k < 12; k++) { const c = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 2.4), F(NEON[k % NEON.length], NEON[k % NEON.length], 0.6)); fw.add(c); cabs.push(c); }
+    anim.push((dt, t) => { const a0 = t * 0.12; cabs.forEach((c, k) => { const a = a0 + k * Math.PI / 6; c.position.set(Math.cos(a) * 18, Math.sin(a) * 18 - 1.5, 0); }); rim.rotation.z = a0; });
+    for (const s2 of [-1, 1]) { const leg = add(new THREE.BoxGeometry(1, 24, 1), F(0xcfd4da), x + s2 * 6 * Math.cos(-0.6), 11, z - s2 * 6 * Math.sin(-0.6)); leg.rotation.z = s2 * 0.25; leg.rotation.y = -0.6; }
+    const car = new THREE.Group(); car.position.set(x - 22, 0, z + 14); scene.add(car);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 1, 24), F(0xffd166, 0x8a6a00, 0.4)); base.position.y = 0.5; car.add(base);
+    const top = new THREE.Mesh(new THREE.ConeGeometry(9, 4, 24), F(0xff3b6b, 0xff3b6b, 0.5)); top.position.y = 8; car.add(top);
+    for (let k = 0; k < 8; k++) { const a = k / 8 * 6.283, pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 6, 6), F(0xffffff)); pole.position.set(Math.cos(a) * 6, 4, Math.sin(a) * 6); car.add(pole);
+      const hs = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1, 0.5), F(NEON[k % NEON.length], NEON[k % NEON.length], 0.4)); hs.position.set(Math.cos(a) * 6, 2.5, Math.sin(a) * 6); car.add(hs); }
+    anim.push((dt, t) => car.rotation.y = t * 0.4);
+    for (let k = 0; k < 5; k++) { const st = new THREE.Group(); st.position.set(x + 10 + k * 7, 0, z + 26); scene.add(st);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 4), F(0xffffff, 0x555555, 0.3)); b.position.y = 1.5; st.add(b);
+      const aw = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.4, 4.6), F(NEON[k], NEON[k], 0.5)); aw.position.y = 3.4; st.add(aw); }
+  }  inst(new THREE.CylinderGeometry(0.035, 0.05, 0.3, 6), F(0x5a3d25), PI_.trunk);
+  [0, 1, 2].forEach(k => inst(new THREE.ConeGeometry(0.32 - k * 0.07, 0.45, 7), F(0x1f5a32, 0x06200f, 0.4), PI_.c[k]));
+}
+
 // ---------- textures ----------
 function windowTex(color, lit = 0.55, seed = 1) {
   const c = document.createElement("canvas"); c.width = 64; c.height = 128;
@@ -550,6 +624,7 @@ function drawProducts(g, p) {  // the 2 main products (owner 2026-10-08): Virtua
     g.textAlign = "left"; g.textBaseline = "alphabetic";
   });
 }
+const FACEIMG = Object.fromEntries(["ollie", "granny", "nobody"].map(id => { const im = new Image(); im.src = "faces/" + id + ".jpg"; return [id, im]; }));  // creator photos on the billboard (owner 2026-10-10)
 function drawFaces(g, faces) {  // "Introducing the new faces of SHC": one card per new influencer
   bigFrame(g, "#ff4fd8", "INTRODUCING THE NEW FACES OF SHC", "Side Hustle City's newest creators");
   const n = Math.max(1, faces.length), cw = Math.min(300, (944 - (n - 1) * 20) / n), x0 = (1024 - (n * cw + (n - 1) * 20)) / 2, cols = ["#ff4fd8", "#ffd166", "#38bdf8", "#3dffa8", "#ff8a3d"];
@@ -558,10 +633,13 @@ function drawFaces(g, faces) {  // "Introducing the new faces of SHC": one card 
     const x = x0 + i * (cw + 20), y = 140, h = 400, c = cols[i % cols.length];
     g.fillStyle = "rgba(255,255,255,0.05)"; g.fillRect(x, y, cw, h); g.strokeStyle = c; g.lineWidth = 4; g.strokeRect(x, y, cw, h);
     g.textAlign = "center"; g.textBaseline = "middle";
-    g.font = `${Math.round(cw * 0.42)}px serif`; g.fillText(f.emoji || "⭐", x + cw / 2, y + 120);
-    g.fillStyle = "#fff"; g.font = `800 ${Math.round(Math.min(40, cw * 0.15))}px Sora`; g.fillText(f.name, x + cw / 2, y + 250, cw - 20);
-    g.fillStyle = c; g.font = "600 22px Inter"; g.fillText(f.username ? "@" + f.username : "", x + cw / 2, y + 296, cw - 20);
-    if (f.followers != null) { g.fillStyle = "#a99cd6"; g.font = "700 24px Inter"; g.fillText(`${num(f.followers)} followers`, x + cw / 2, y + 344, cw - 20); }
+    const im = FACEIMG[f.id];
+    if (im && im.complete && im.naturalWidth) { const pw = cw - 24, ph = 230, r = Math.max(pw / im.naturalWidth, ph / im.naturalHeight), sw = pw / r, sh = ph / r;
+      g.drawImage(im, (im.naturalWidth - sw) / 2, (im.naturalHeight - sh) * 0.2, sw, sh, x + 12, y + 12, pw, ph); }
+    else { g.font = `${Math.round(cw * 0.42)}px serif`; g.fillText(f.emoji || "⭐", x + cw / 2, y + 120); }
+    g.fillStyle = "#fff"; g.font = `800 ${Math.round(Math.min(40, cw * 0.15))}px Sora`; g.fillText(f.name, x + cw / 2, y + 276, cw - 20);
+    g.fillStyle = c; g.font = "600 22px Inter"; g.fillText(f.username ? "@" + f.username : "", x + cw / 2, y + 316, cw - 20);
+    if (f.followers != null) { g.fillStyle = "#a99cd6"; g.font = "700 24px Inter"; g.fillText(`${num(f.followers)} followers`, x + cw / 2, y + 356, cw - 20); }
     g.textAlign = "left"; g.textBaseline = "alphabetic";
   });
 }
@@ -1378,19 +1456,9 @@ function life() {
   // Trading Town promenade and the Industrial Park's yard street
   seg(TR.c[0] - TR.h * 0.8, TR.c[1] + 16, TR.c[0] + TR.h * 0.8, TR.c[1] + 16, 5, TR.color);
   seg(IN.c[0] - IN.h * 0.8, IN.c[1] + 3, IN.c[0] + IN.h * 0.8, IN.c[1] + 3, 4, IN.color);
-  // the four big parks between the quarters: a loop walk round a pond, and a path in from Downtown's corner
-  const PARKS = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => ({ x: sx * 122, z: sz * 118, r: 44, sx, sz }));
-  PARKS.forEach(P => {
-    const { x, z, r, sx, sz } = P;
-    const lr = r * 0.78, n = 20, wob = k => lr * (1 + 0.12 * Math.sin(k * 3 + x));   // a winding loop walk round the pond
-    for (let k = 0; k < n; k++) { const a0 = k / n * 6.283, a1 = (k + 1) / n * 6.283; seg(x + Math.cos(a0) * wob(a0), z + Math.sin(a0) * wob(a0), x + Math.cos(a1) * wob(a1), z + Math.sin(a1) * wob(a1), 3.6); }
-    const ang = Math.atan2(sz, sx), [ax, az] = blobPt(DN, ang, RW + 7), ea = Math.atan2(az - z, ax - x);
-    seg(ax, az, x + Math.cos(ea) * wob(ea), z + Math.sin(ea) * wob(ea), 4, 0x22ff88); seg(x - sx * wob(0) * 0.98, z, x - sx * 15, z, 3.2);
-    const pond = new THREE.Mesh(new THREE.CircleGeometry(12, 48), new THREE.MeshStandardMaterial({ color: 0x0a2a55, emissive: 0x1e5aa8, emissiveIntensity: 0.35, metalness: 0.9, roughness: 0.05 }));
-    pond.rotation.x = -Math.PI / 2; pond.position.set(x, 0.34, z); scene.add(pond);
-    const edge = new THREE.Mesh(new THREE.TorusGeometry(12.2, 0.35, 6, 64), new THREE.MeshStandardMaterial({ color: 0xd9d2c4, emissive: 0x332a1a, emissiveIntensity: 0.3 })); edge.rotation.x = Math.PI / 2; edge.position.set(x, 0.4, z); scene.add(edge);
-    anim.push((dt, t) => pond.material.emissiveIntensity = 0.3 + Math.sin(t * 0.8 + x) * 0.06);
-  });
+  // the four corners + the map edges (owner 2026-10-10): no more identical parks; each side has its own landscape (visual only)
+  outskirts();
+  const PARKS = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => ({ x: sx * 122, z: sz * 118 }));  // corner features: keep street trees out
   // Vault plaza paving, reflecting pool, Library forecourt, paved squares in Trading Town + the factory yard
   const paveAt = (w, h, x, z) => { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, h), stone); p.rotation.x = -Math.PI / 2; p.position.set(x, 0.325, z); scene.add(p); };
   paveAt(PLAZA[1] - PLAZA[0], PLAZA[3] - PLAZA[2], 0, (PLAZA[2] + PLAZA[3]) / 2);
@@ -1409,7 +1477,7 @@ function life() {
   const hillR = (x, z) => Math.hypot(x - HILL.c[0], z - HILL.c[1]);
   const open = (x, z, pad) => Math.abs(x) < EXT - 3 && Math.abs(z) < EXT - 3 && !nearSolid(x, z, pad) && !nearPath(x, z, pad) && roadDist(x, z) > RW + 1 + pad
     && !paved(x, z, pad) && !inRect(x, z, PLAZA, pad) && !inRect(x, z, POOL, pad + 3) && !inRect(x, z, [-16, 16, -34, -14], pad)
-    && hillR(x, z) > HILL.h + 3 && PARKS.every(P => Math.hypot(x - P.x, z - P.z) > 13 + pad);
+    && hillR(x, z) > HILL.h + 3 && PARKS.every(P => Math.hypot(x - P.x, z - P.z) > 46 + pad);
 
   // trees: rows along the avenues, loose groves in the parks and on the hillside
   const spots = [];
@@ -1749,8 +1817,9 @@ function liveStrip(p) {
   const v = x => x === null || x === undefined ? "—" : num(x);
   el.hidden = false;
   const inf = M.s.influencers;
-  el.innerHTML = `<span class="lv">● LIVE</span>` + (inf && inf.accounts ? `<button id="infbtn">📊 Influencers <b>${num(inf.followers)}</b>${inf.gained_24h ? ` <em>${inf.gained_24h > 0 ? "+" : ""}${inf.gained_24h}</em>` : ""}</button>` : "") +
-    `<button data-id="influencer">🌹 Influencer users <b>${v(st.influencer_users)}</b>${st.influencer_new ? ` <em>+${st.influencer_new}</em>` : ""}</button>` +
+  const sv = M.s.site;
+  el.innerHTML = `<span class="lv">● LIVE</span>` + (sv && sv.today ? `<button id="sitebtn" title="Website visitors (not us), all pages">🌐 Website <b>${num(sv.today.visitors)}</b>${sv.d7.visitors ? ` <em>${num(sv.d7.visitors)}/7d</em>` : ""}</button>` : "") + (inf && inf.accounts ? `<button id="infbtn">📊 Influencers <b>${num(inf.followers)}</b>${inf.gained_24h ? ` <em>${inf.gained_24h > 0 ? "+" : ""}${inf.gained_24h}</em>` : ""}</button>` : "") +
+    `<button data-id="army">🌹 Influencer users <b>${v(st.influencer_users)}</b>${st.influencer_new ? ` <em>+${st.influencer_new}</em>` : ""}</button>` +
     `<button data-id="showroom">🏙️ SHC visits <b>${v(st.shc_visits)}</b></button>` +
     `<button data-id="etsy" title="from ${esc(st.etsy_src || "")}">🛍️ Etsy visits <b>${v(st.etsy_visits)}</b></button>` +
     `<button data-id="gumroad" title="${st.gumroad_visits === null ? "read from Gumroad via Chrome on Go Bananas (last " + esc(st.gumroad_at || "never") + ")" : ""}">🎨 Gumroad visits <b>${v(st.gumroad_visits)}</b></button>`;
@@ -1765,7 +1834,7 @@ function hud() {
   const why = b => [...(att[b.id] || []), ...(b.status === "down" ? ["Something here is down"] : [])];
   const chip = (id, label, color, w) => `<button class="chip${w.length ? " need" : ""}" data-id="${id}" title="${esc(w.join(" · "))}" style="border-color:${color}88;color:${color}">${w.length ? `<i class="blip"></i>` : ""}${esc(label)}</button>`;
   const names = { vault: "Vault", etsy: "Etsy", fb: "Meta", ig: "Instagram", copy: "Copy Desk", polylive: "Poly LIVE", poly: "Poly Practice", longshot: "Olympics", newfaces: "Media Board", output: "Output", whdig: "Digital WH", whpod: "Print WH", influencer: "Influencer", contra: "Contra", zoho: "Outreach", gumroad: "Gumroad", kdp: "KDP", lab: "API Lab",
-    krypto: "Krypto", kalshi: "Kalshi", pinterest: "Pinterest", github: "GitHub", rnd: "R&D", showroom: "SHC", army: "AI Army", library: "Library", aiworks: "AI Works" };
+    krypto: "Krypto", kalshi: "Kalshi", pinterest: "Pinterest", github: "GitHub", rnd: "R&D", showroom: "SHC", army: "AI Army", library: "Library", aiworks: "AI Works", botrace: "Live Arena", whop: "Whop", youtube: "YouTube" };
   const list = [chip("vault", "Vault", "#ffd166", att.vault || [])].concat(B.filter(b => !b.home).map(b => chip(b.id, names[b.id] || b.short, hex(b.color), why(b))));
   const dn = { down: "Downtown", media: "Media Hill", trade: "Trading Town", ind: "Industrial", subs: "Suburbs" };
   $("#chips").innerHTML = (WLD ? [] : DIST.map(D => `<button class="chip dchip" data-dist="${D.id}" style="border-color:${hex(D.color)}88;color:${hex(D.color)}">📍 ${dn[D.id]}</button>`)).join("");  // owner 2026-10-09: towns only, no building shortcuts
@@ -1773,11 +1842,14 @@ function hud() {
   M.need = id => id === "vault" ? att.vault || [] : why(B.find(x => x.id === id) || {});
   liveStrip(s.pulse);
   creditsBubble(s.credits); if ($("#infbtn")) $("#infbtn").onclick = openInf;
+  if ($("#sitebtn")) $("#sitebtn").onclick = openSite;
   staffPanel();
   todoNote(s.todo);
   document.querySelectorAll("[data-id]").forEach(x => x.onclick = () => focus(x.dataset.id));
   $("#updated").textContent = `data ${ago(s.ts)} · refreshes every 30 min`;
-  const rows = B.filter(b => b.id !== "library" && !b.noPay).map(b => {
+  // payroll = only the places that actually take payments (owner 2026-10-10); tools/funnels (GitHub, warehouses, R&D, AI Army, YouTube, racers...) are left out so sales are not counted twice
+  const PAY = ["etsy", "gumroad", "kdp", "whop", "showroom", "contra", "zoho", "lab"];
+  const rows = B.filter(b => PAY.includes(b.id)).map(b => {
     const earned = b.id === "influencer" ? (b.zar ? "R" + num(b.zar) : "R0") : usd(b.today);
     const total = b.id === "influencer" ? "R" + num(b.zar || 0) : usd(b.total);
     return `<tr><td>${b.icon} ${esc(b.short)}</td><td><span class="dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${dc[b.status]}"></span></td><td>${earned}</td><td>${total}</td></tr>`; });
@@ -3340,6 +3412,41 @@ function skinPicker() {
   el.querySelectorAll("[data-sk]").forEach(b => b.onclick = () => own(b.dataset.sk) ? applySkin(b.dataset.sk)
     : window.CITY_SKIN_SHOP ? window.open(window.CITY_SKIN_SHOP, "_blank") : alert("This skin is $1 on the Side Hustle City page (link in your order email). Then add its id to skins.js."));
 }
+
+
+// 🌐 website visitors (owner 2026-10-10): anonymous visits to every public page, the owner's own devices excluded
+function openSite() {
+  const v = M.s.site || {}, k = (t, x) => `<div class="kv"><b>${num((x || {}).visitors || 0)}</b><span>${t} · ${num((x || {}).views || 0)} views</span></div>`;
+  const mx = Math.max(1, ...(v.daily || []).map(d => d[1]));
+  const bars = (v.daily || []).map(([d, n]) => `<div title="${d}: ${n}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px"><div style="width:70%;height:${Math.round(70 * n / mx)}px;min-height:2px;border-radius:4px;background:var(--c)"></div><small style="font-size:9px;color:var(--dim)">${d.slice(3)}</small></div>`).join("");
+  const sheet = $("#sheet"); sheet.style.setProperty("--c", "#22d3ee");
+  $("#sheetbody").innerHTML = `<h2>🌐 Website visitors</h2><div class="sub">People (not us) on any page of sonneblomdigitaal.co.za, from any link · counting since ${esc(v.since || "today")} · updated ${esc(v.ts || "–")}</div>
+    <div class="grid">${k("today", v.today)}${k("last 7 days", v.d7)}${k("last 30 days", v.d30)}${k("all time", v.all)}</div>
+    <div class="lt" style="margin-top:14px">Visitors per day (14 days)</div><div style="display:flex;gap:2px;height:96px;align-items:flex-end;margin:6px 0 4px">${bars}</div>
+    <div class="lt" style="margin-top:14px">Where they came from (7 days)</div><div class="list">${(v.sources || []).map(([n, c]) => `<div><span>${esc(n)}</span><span>${num(c)}</span></div>`).join("") || "<div><span>No visits yet</span><span></span></div>"}</div>
+    <div class="lt" style="margin-top:14px">Most viewed pages (7 days)</div><div class="list">${(v.pages || []).map(([p, c]) => `<div><span><a href="https://sonneblomdigitaal.co.za${esc(p)}" target="_blank" rel="noopener" style="color:inherit">${esc(p)}</a></span><span>${num(c)}</span></div>`).join("") || "<div><span>No visits yet</span><span></span></div>"}</div>
+    <div class="note">Phones: ${num((v.d7 || {}).mobile || 0)} of ${num((v.d7 || {}).views || 0)} views this week. Your own devices (any that opened the City) are never counted.</div>`;
+  sheet.hidden = false;
+}
+// 🔗 quick links (owner 2026-10-10): every landing page on sonneblomdigitaal.co.za + our shops/channels elsewhere
+const SITE = "https://sonneblomdigitaal.co.za";
+const QLINKS = [
+  ["Main site", [["🏠 Home + shop hub", "/"], ["🛍️ All products", "/shop/"], ["ℹ️ How buying works", "/info/"], ["🔒 Privacy", "/privacy/"]]],
+  ["Selling now", [["🤖 AI employees (sale page)", "/ai-team/"], ["🎬 AI UGC agency (Creator Studio)", "/ugc/"], ["📈 AI Bot Race", "/bot-race/"], ["🏢 AI Works virtual office", "/office/"], ["🏙️ Side Hustle City", "/side-hustle-city/"],
+    ["✨ AI influencers + templates", "/ai/"], ["🤝 Partners (affiliates)", "/ai/partners/"], ["🌹 Influencer: how she's made", "/influencer/"], ["🧾 Sonneblom Tax (calculators + TaxBot)", "/tax/"], ["🏘️ Landlord toolkit", "/tax/landlords/"], ["📍 Potch websites + AI visibility", "/potch/"], ["🌐 Webwerwe (local sites)", "/webwerwe/"]]],
+  ["Demos + tours", [["🎥 City tour (public demo)", "/city-tour/"], ["🧭 Demo city", "/city-tour/city/"], ["📊 Accounting City demo", "/firm-demo/"], ["💼 Consulting demo", "/consult-demo/"], ["🪙 Community coins", "/community/"], ["🧩 Hubs", "/hubs/"], ["📸 Influencers page", "/influencers/"]]],
+  ["Elsewhere", [["🛒 Whop store", "https://whop.com/sonneblomdigitaal/"], ["🧠 Copy What We Did Club", "https://whop.com/sonneblomdigitaal/copy-what-we-did-club-sd/"],
+    ["📺 YouTube · AI Bot Race", "https://www.youtube.com/channel/UCMV6u5f2BcmPNGqJPjTxKhQ"], ["🎨 Gumroad", "https://sonneblomdigitaal.gumroad.com/"], ["♿ EAA Fix", "https://our outreach site/"],
+    ["💬 Influencer chat", "https://influencercompanion.github.io/chat.html"]]],
+];
+$("#linksbtn").onclick = () => {
+  const sheet = $("#sheet"); sheet.style.setProperty("--c", "#00e5ff");
+  $("#sheetbody").innerHTML = `<h2>🔗 All our links</h2><div class="sub">Every landing page on sonneblomdigitaal.co.za, plus our shops and channels. Tap to open, ⧉ to copy.</div>` +
+    QLINKS.map(([t, items]) => `<div class="lt" style="margin-top:14px">${esc(t)}</div><div class="list">${items.map(([n, u]) => { const full = u.startsWith("http") ? u : SITE + u;
+      return `<div><span><a href="${full}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(n)}</a></span><span><button class="cp" data-u="${full}" style="background:none;border:0;color:var(--c);cursor:pointer;font-size:15px" title="Copy link">⧉</button></span></div>`; }).join("")}</div>`).join("");
+  $("#sheetbody").querySelectorAll("button.cp").forEach(b => b.onclick = e => { e.stopPropagation(); navigator.clipboard?.writeText(b.dataset.u); b.textContent = "✓"; setTimeout(() => (b.textContent = "⧉"), 1200); });
+  sheet.hidden = false;
+};
 $("#skinbtn").onclick = () => { const el = $("#skins"); el.hidden = !el.hidden; if (!el.hidden) (DEMO ? skinPicker() : themePicker()); };
 async function reload() {
   try { D = await decrypt(PW); } catch (e) { return; }
