@@ -3476,7 +3476,7 @@ const SITE = "https://sonneblomdigitaal.co.za";
 const QLINKS = [
   ["Main site", [["🏠 Home + shop hub", "/"], ["🛍️ All products", "/shop/"], ["ℹ️ How buying works", "/info/"], ["🔒 Privacy", "/privacy/"]]],
   ["Selling now", [["🤖 AI employees (sale page)", "/ai-team/"], ["🎬 AI UGC agency (Creator Studio)", "/ugc/"], ["📈 AI Bot Race", "/bot-race/"], ["🏢 AI Works virtual office", "/office/"], ["🏙️ Side Hustle City", "/side-hustle-city/"],
-    ["✨ AI influencers + templates", "/ai/"], ["🤝 Partners (affiliates)", "/ai/partners/"], ["🌹 Rose: how she's made", "/rose/"], ["📍 Potch websites + AI visibility", "/potch/"], ["🌐 Webwerwe (local sites)", "/webwerwe/"]]],
+    ["✨ AI influencers + templates", "/ai/"], ["🤝 Partners (affiliates)", "/ai/partners/"], ["🌹 Rose: how she's made", "/rose/"], ["🧾 Sonneblom Tax (calculators + TaxBot)", "/tax/"], ["🏘️ Landlord toolkit", "/tax/landlords/"], ["📍 Potch websites + AI visibility", "/potch/"], ["🌐 Webwerwe (local sites)", "/webwerwe/"]]],
   ["Demos + tours", [["🎥 City tour (public demo)", "/city-tour/"], ["🧭 Demo city", "/city-tour/city/"], ["📊 Accounting City demo", "/firm-demo/"], ["💼 Consulting demo", "/consult-demo/"], ["🪙 Community coins", "/community/"], ["🧩 Hubs", "/hubs/"], ["📸 Influencers page", "/influencers/"]]],
   ["Elsewhere", [["🛒 Whop store", "https://whop.com/sonneblomdigitaal/"], ["🧠 Copy What We Did Club", "https://whop.com/sonneblomdigitaal/copy-what-we-did-club-sd/"],
     ["📺 YouTube · AI Bot Race", "https://www.youtube.com/channel/UCMV6u5f2BcmPNGqJPjTxKhQ"], ["🎨 Gumroad", "https://sonneblomdigitaal.gumroad.com/"], ["♿ EAA Fix", "https://eaafix.com/"],
